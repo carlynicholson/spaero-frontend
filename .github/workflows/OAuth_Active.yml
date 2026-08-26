@@ -1,0 +1,37 @@
+name: Google OAuth Clients Keep Active
+
+on:
+  schedule:
+    # Runs at 00:00 UTC on the 1st day of every month
+    - cron: '0 0 1 * *'
+  workflow_dispatch: # Allows manually triggering the workflow from GitHub Actions UI
+
+jobs:
+  refresh-oauth-token:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Exchange Refresh Token for Access Token
+        env:
+          CLIENT_ID: ${{ secrets.GCP_OAUTH_CLIENT_ID }}
+          CLIENT_SECRET: ${{ secrets.GCP_OAUTH_CLIENT_SECRET }}
+          REFRESH_TOKEN: ${{ secrets.GCP_OAUTH_REFRESH_TOKEN }}
+        run: |
+          if [ -z "$CLIENT_ID" ] || [ -z "$CLIENT_SECRET" ] || [ -z "$REFRESH_TOKEN" ]; then
+            echo "::error::One or more required GitHub secrets are missing!"
+            exit 1
+          fi
+          echo "Sending token refresh request to Google OAuth 2.0 endpoint..."
+          RESPONSE=$(curl -s -w "\nHTTP_STATUS:%{http_code}" -X POST https://oauth2.googleapis.com/token \
+            -d "client_id=${CLIENT_ID}" \
+            -d "client_secret=${CLIENT_SECRET}" \
+            -d "refresh_token=${REFRESH_TOKEN}" \
+            -d "grant_type=refresh_token")
+          HTTP_STATUS=$(echo "$RESPONSE" | grep "HTTP_STATUS" | awk -F':' '{print $2}')
+          BODY=$(echo "$RESPONSE" | sed '/HTTP_STATUS/d')
+          if [ "$HTTP_STATUS" -eq 200 ]; then
+            echo "OAuth token exchange successful! Google Client ID activity recorded."
+          else
+            echo "::error::Failed to refresh token. HTTP Status Code: $HTTP_STATUS"
+            echo "Response Body: $BODY"
+            exit 1
+          fi
